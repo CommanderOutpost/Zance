@@ -1,0 +1,21 @@
+# app/config.py
+
+from pydantic import BaseSettings, Field
+
+
+class Settings(BaseSettings):
+    # MongoDB URI: defaults to local if not provided.
+    mongo_uri: str = Field("mongodb://localhost:27017/remindria", env="MONGO_URI")
+    # Redis URL: defaults to local if not provided.
+    redis_url: str = Field("redis://localhost:6379", env="REDIS_URL")
+    # OpenAI API Key: must be provided.
+    openai_api_key: str = Field(..., env="OPENAI_API_KEY")
+    # JWT Secret key: defaults to a placeholder if not provided.
+    secret_key: str = Field("your_jwt_secret", env="SECRET_KEY")
+
+    class Config:
+        env_file = ".env"  # Tells pydantic to load variables from .env
+
+
+# Instantiate the settings so other modules can import them.
+settings = Settings()

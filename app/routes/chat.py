@@ -46,13 +46,16 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
         if not user_id:
             await websocket.close(code=1008)
             return
-    except Exception:
+    except Exception as e:
         await websocket.close(code=1008)
         return
 
     # Authorization: check if user is a participant in the conversation.
     try:
         conversation = await get_conversation(conversation_id)
+        if not conversation:
+            await websocket.close(code=1008)
+            return
     except Exception:
         await websocket.close(code=1008)
         return
@@ -60,6 +63,9 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     if user_id not in conversation.get("participants", []):
         await websocket.close(code=1008)
         return
+
+    # Accept the WebSocket connection.
+    await websocket.accept()
 
     # Add this websocket connection to the local store.
     if conversation_id not in local_connections:

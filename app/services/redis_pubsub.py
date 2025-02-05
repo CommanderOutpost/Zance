@@ -3,16 +3,26 @@
 import json
 from app.config import settings
 import redis.asyncio as redis
+from datetime import datetime
 
 # Create a shared async Redis client.
 redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+# Function to serialize datetime objects
+def json_serializer(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()  # Convert datetime to string
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 
 async def publish_message(channel: str, message: dict):
     """
     Publish a JSON message to a Redis channel.
     """
-    await redis_client.publish(channel, json.dumps(message))
+    # Convert message to JSON and handle datetime serialization
+    message_json = json.dumps(message, default=json_serializer)
+    await redis_client.publish(channel, message_json)
 
 
 async def subscribe_to_channel(channel: str):

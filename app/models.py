@@ -3,6 +3,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from typing import List
 
 # ---------------------------------
 # User Models
@@ -51,7 +52,37 @@ class Message(BaseModel):
 
 
 # ---------------------------------
+# Conversation Models
+# ---------------------------------
+
+
+class ConversationCreate(BaseModel):
+    """
+    Model for creating a new conversation.
+    """
+
+    participants: List[str] = Field(..., example=["user_id_1", "user_id_2"])
+    conversation_type: str = Field(default="dm", example="dm")  # e.g., "dm" or "group"
+
+
+class Conversation(BaseModel):
+    """
+    Model for returning conversation data.
+    """
+
+    id: str = Field(..., alias="_id")
+    participants: List[str]
+    conversation_type: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
+
+
+# ---------------------------------
 # Additional Models (if needed)
 # ---------------------------------
+
 
 # You can define other models here, for example, models for login, or for updating profiles.

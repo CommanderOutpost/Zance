@@ -1,4 +1,5 @@
 # app/utils/auth.py
+
 import jwt
 from datetime import datetime, timedelta
 from app.config import settings
@@ -7,6 +8,9 @@ from app.config import settings
 def create_access_token(
     data: dict, expires_delta: timedelta = timedelta(hours=1)
 ) -> str:
+    """
+    Create a JWT access token with an expiration time.
+    """
     to_encode = data.copy()
     expire = datetime.utcnow() + expires_delta
     to_encode.update({"exp": expire})

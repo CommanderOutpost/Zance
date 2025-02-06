@@ -8,30 +8,32 @@ from app.repositories.conversation_repository import (
 from app.models import ConversationCreate
 from datetime import datetime
 from fastapi import HTTPException, status
-
 from app.repositories.user_repository import get_user_by_id
+from typing import List
 
 
-async def create_new_conversation(conversation: ConversationCreate) -> dict:
+async def create_new_conversation(
+    conversation: ConversationCreate, skip_participant_check: bool = False
+) -> dict:
     """
     Create a new conversation.
-    Verifies that every participant exists. If any participant does not exist,
-    or if any participant ID is invalid, raises an HTTP 400 error.
+    Verifies that every participant exists unless skip_participant_check is True.
+    When skip_participant_check is True (for AI conversations), the AI participant is assumed valid.
     """
-    conversation_data = conversation.model_dump()
+    conversation_data = conversation
 
-    # Validate each participant exists.
-    for participant_id in conversation_data.get("participants", []):
-        user = await get_user_by_id(participant_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"User with ID {participant_id} does not exist.",
-            )
-
+    if not skip_participant_check:
+        # Validate each participant exists in the users collection.
+        for participant_id in conversation_data.get("participants", []):
+            user = await get_user_by_id(participant_id)
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"User with ID {participant_id} does not exist.",
+                )
     conversation_data["created_at"] = datetime.utcnow()
 
-    # Optionally, add logic to ensure a DM between the same users is unique.
+    # Create the conversation in the database.
     return await create_conversation(conversation_data)
 
 
@@ -52,3 +54,13 @@ async def list_user_conversations(user_id: str) -> list:
     List all conversations for a given user.
     """
     return await list_conversations_for_user(user_id)
+
+
+async def update_conversation_history_record(
+    conversation_id: str, history: List[dict]
+) -> dict:
+    from app.repositories.conversation_repository import (
+        update_conversation_history_record,
+    )
+
+    return await update_conversation_history_record(conversation_id, history)

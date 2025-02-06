@@ -36,7 +36,7 @@ async def register_user(user: UserCreate) -> dict:
         new_user = {
             "username": user.username,
             "password": hash_password(user.password),
-            "created_at": datetime.now(datetime.timezone.utc)(),
+            "created_at": datetime.utcnow(),
         }
         created_user = await create_user(new_user)
         logger.info(f"User '{user.username}' registered successfully.")

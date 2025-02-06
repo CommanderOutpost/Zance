@@ -1,58 +1,61 @@
 # app/services/ai_service.py
 
-import openai
 import asyncio
+from openai import OpenAI
 from app.config import settings
 from app.services.redis_service import get_cached_value, set_cached_value
 
-# Set your OpenAI API key from the configuration.
-openai.api_key = settings.openai_api_key
+# Initialize the OpenAI client
+openai_client = OpenAI(api_key=settings.openai_api_key)
+
+openai_model = settings.openai_model
 
 
 async def get_ai_response(
-    prompt: str, personality: str = "friendly", max_tokens: int = 150
+    prompt: str, conversation_history: list, model: str = openai_model
 ) -> str:
     """
-    Retrieve an AI-generated response for a given prompt, with caching.
+    Generates an AI response using the OpenAI client, given a prompt and conversation history.
 
-    This function performs the following steps:
-      1. Builds a full prompt that includes personality instructions.
-      2. Checks Redis for a cached response based on a cache key derived from the prompt and personality.
-      3. If found, returns the cached response.
-      4. Otherwise, calls the OpenAI API to generate a response.
-      5. Caches the response before returning it.
+    Parameters:
+        prompt (str): The user's input message to the AI.
+        conversation_history (list): List of dictionaries representing the conversation history.
+                                     Each dictionary must contain 'role' and 'content' keys.
+        model (str): The AI model to use (default is "gpt-4o-mini").
 
-    :param prompt: The user input or conversation prompt.
-    :param personality: The personality style for the AI (e.g., "friendly", "sarcastic").
-    :param max_tokens: The maximum number of tokens for the response.
-    :return: The AI-generated response as a string.
+    Returns:
+        str: AI's response message.
     """
-    # Create a cache key based on personality and prompt.
-    cache_key = f"ai_response:{personality}:{prompt}"
+    # Validate input
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("The 'prompt' parameter must be a non-empty string.")
+    if not isinstance(conversation_history, list) or not all(
+        isinstance(msg, dict) and "role" in msg and "content" in msg
+        for msg in conversation_history
+    ):
+        raise ValueError(
+            "The 'conversation_history' must be a list of dictionaries with 'role' and 'content' keys."
+        )
 
-    # Check if the response is cached.
+    # Create a cache key based on model, prompt, and conversation history.
+    cache_key = f"ai_response:{model}:{prompt}:{str(conversation_history)}"
     cached_response = await get_cached_value(cache_key)
     if cached_response:
         return cached_response
 
-    # Build the full prompt with personality instructions.
-    full_prompt = f"You are a {personality} assistant.\nUser: {prompt}\nAI:"
+    # Call the OpenAI API asynchronously using asyncio.to_thread
+    def sync_call():
+        return openai_client.chat.completions.create(
+            model=model,
+            messages=conversation_history,
+        )
 
-    # Call the OpenAI API asynchronously (wrapping the synchronous call with asyncio.to_thread)
-    response = await asyncio.to_thread(
-        openai.Completion.create,
-        engine="davinci",  # or "gpt-3.5-turbo" if available for completions
-        prompt=full_prompt,
-        max_tokens=max_tokens,
-        temperature=0.7,
-        n=1,
-        stop=None,
-    )
+    response = await asyncio.to_thread(sync_call)
+    ai_response = response.choices[0].message.content.strip()
 
-    # Extract the AI response text.
-    ai_response = response.choices[0].text.strip()
+    # Append the AI's response to the conversation history.
+    conversation_history.append({"role": "assistant", "content": ai_response})
 
-    # Cache the response in Redis for future calls (default expiration is 1 hour)
+    # Cache the response
     await set_cached_value(cache_key, ai_response, expire=3600)
-
     return ai_response

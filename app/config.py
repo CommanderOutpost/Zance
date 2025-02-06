@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     # JWT Secret key: defaults to a placeholder if not provided.
     secret_key: str = Field("your_jwt_secret", env="SECRET_KEY")
 
+    openai_model: str = Field("gpt-4o-mini", env="OPENAI_MODEL")
+
     class Config:
         env_file = ".env"  # Tells pydantic to load variables from .env
 

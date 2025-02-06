@@ -45,7 +45,9 @@ class Message(BaseModel):
 
     sender: str = Field(..., example="john_doe")
     content: str = Field(..., example="Hello, how are you?")
-    timestamp: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    timestamp: Optional[datetime] = Field(
+        default_factory=lambda: datetime.now(datetime.timezone.utc)
+    )
 
     class Config:
         from_attributes = True
@@ -74,10 +76,32 @@ class Conversation(BaseModel):
     participants: List[str]
     conversation_type: str
     created_at: Optional[datetime] = None
+    history: Optional[List[dict]] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
-        populate_by_name = True
+        populate_by_field_name = True
+
+
+# ---------------------------------
+# AI Models
+# ---------------------------------
+
+
+class AI(BaseModel):
+    """
+    Model representing an AI agent.
+    """
+
+    id: str = Field(..., alias="_id")
+    name: str = Field(..., example="FriendlyBot")
+    age: Optional[int] = Field(None, example=2)
+    details: Optional[str] = Field(None, example="A friendly AI assistant.")
+    personality: Optional[str] = Field("friendly", example="friendly")
+
+    class Config:
+        from_attributes = True
+        populate_by_field_name = True
 
 
 # ---------------------------------

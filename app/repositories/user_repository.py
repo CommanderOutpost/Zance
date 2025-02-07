@@ -1,16 +1,16 @@
 """
-User repository module.
+User Repository Module
 
 Provides functions for querying and updating the "users" collection in MongoDB.
 """
 
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from app.database import db
 from bson import ObjectId, errors
 from fastapi import HTTPException, status
 
 
-async def get_user_by_username(username: str) -> Optional[Dict]:
+async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve a user document by username.
 
@@ -20,7 +20,17 @@ async def get_user_by_username(username: str) -> Optional[Dict]:
     return await db.users.find_one({"username": username})
 
 
-async def get_user_by_id(user_id: str) -> Optional[Dict]:
+async def get_user_by_phone_number(phone_number: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a user document by phone number.
+
+    :param phone_number: The phone number to search for (e.g., "+2348123456782").
+    :return: The user document if found, otherwise None.
+    """
+    return await db.users.find_one({"phone_number": phone_number})
+
+
+async def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieve a user document by its ID.
     Validates the ID format; raises a 400 error if invalid.
@@ -36,14 +46,13 @@ async def get_user_by_id(user_id: str) -> Optional[Dict]:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid user id: {user_id}. It must be a 24-character hex string.",
         )
-
     user = await db.users.find_one({"_id": oid})
     if user:
         user["_id"] = str(user["_id"])
     return user
 
 
-async def create_user(user_data: Dict) -> Dict:
+async def create_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Insert a new user document into the database.
 
@@ -55,7 +64,7 @@ async def create_user(user_data: Dict) -> Dict:
     return user_data
 
 
-async def get_all_users() -> List[Dict]:
+async def get_all_users() -> List[Dict[str, Any]]:
     """
     Retrieve all user documents from the database,
     converting each document's _id to a string.

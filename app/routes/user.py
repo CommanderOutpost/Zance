@@ -1,5 +1,5 @@
 """
-User routes module.
+User Routes Module
 
 Defines endpoints for user signup, login, and retrieval.
 """
@@ -23,7 +23,7 @@ async def signup(user: UserCreate):
     """
     Register a new user.
 
-    :param user: A UserCreate model instance.
+    :param user: A UserCreate model instance containing user signup data.
     :return: The created user document.
     """
     try:

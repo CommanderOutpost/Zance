@@ -6,13 +6,10 @@ It includes models for user operations, chat messages, conversations, and AI age
 These models are used for request validation and response serialization.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
-
-# ---------------------------------
-# User Models
-# ---------------------------------
+import re
 
 
 class UserCreate(BaseModel):
@@ -24,10 +21,14 @@ class UserCreate(BaseModel):
                         Example: "john_doe"
         password (str): The password for the new user. Must be at least 6 characters long.
                         Example: "securepass123"
+        phone_number (str): The unique phone number for the user in E.164 format.
+                            Example: "+2348123456782"
     """
 
     username: str = Field(
-        ..., example="john_doe", description="The desired username for the new user."
+        ...,
+        example="john_doe",
+        description="The desired username for the new user. (Allowed characters: alphanumeric and underscores.)",
     )
     password: str = Field(
         ...,
@@ -35,6 +36,45 @@ class UserCreate(BaseModel):
         example="securepass123",
         description="The password for the new user (min 6 characters).",
     )
+    phone_number: str = Field(
+        ...,
+        example="+2348123456782",
+        description="The unique phone number for the user in E.164 format (e.g. +2348123456782).",
+    )
+
+    @field_validator("username")
+    @classmethod
+    def username_must_be_valid(cls, v: str) -> str:
+        """
+        Ensure the username contains only alphanumeric characters and underscores.
+        """
+        if not re.match(r"^[A-Za-z0-9_]+$", v):
+            raise ValueError(
+                "Username must contain only alphanumeric characters and underscores."
+            )
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_must_be_strong(cls, v: str) -> str:
+        """
+        Ensure the password is at least 6 characters long.
+        """
+        if len(v) < 6:
+            raise ValueError("Password must be at least 6 characters long.")
+        return v
+
+    @field_validator("phone_number")
+    @classmethod
+    def phone_number_must_be_valid(cls, v: str) -> str:
+        """
+        Ensure the phone number is in valid E.164 format.
+        """
+        if not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError(
+                "Phone number must be in valid E.164 format (e.g. +2348123456782)."
+            )
+        return v
 
 
 class UserResponse(BaseModel):
@@ -47,6 +87,8 @@ class UserResponse(BaseModel):
                   Example: "605c72f7e3a1d72f1c8f9a0b"
         username (str): The username of the user.
                         Example: "john_doe"
+        phone_number (str): The unique phone number of the user.
+                            Example: "+2348123456782"
         created_at (Optional[datetime]): The UTC timestamp when the user was created.
                                           Example: "2024-11-20T18:33:13.953000"
     """
@@ -57,6 +99,11 @@ class UserResponse(BaseModel):
         description="The unique identifier of the user (string representation).",
     )
     username: str = Field(..., description="The username of the user.")
+    phone_number: str = Field(
+        ...,
+        example="+2348123456782",
+        description="The unique phone number of the user.",
+    )
     created_at: Optional[datetime] = Field(
         None, description="UTC timestamp when the user was created."
     )

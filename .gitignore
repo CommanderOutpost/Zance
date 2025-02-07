@@ -1,4 +1,4 @@
-print.txt
+*.txt
 venv/
 .env
 *__pycache__/

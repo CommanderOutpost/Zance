@@ -20,12 +20,20 @@ async def create_conversation_endpoint(conversation: ConversationCreate):
     return await create_new_conversation(conversation)
 
 
-@router.get("/{conversation_id}", response_model=Conversation)
+@router.get("/{conversation_id}")
 async def get_conversation_endpoint(conversation_id: str):
     """
-    Endpoint to retrieve conversation details by its ID.
+    Endpoint to retrieve conversation details by its ID, ensuring AI responses are included.
     """
-    return await get_conversation(conversation_id)
+    conversation = await get_conversation(conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
+    return {
+        "conversation_id": conversation_id,
+        "participants": conversation.get("participants", []),
+        "history": conversation.get("history", []),  # Ensure latest AI responses appear
+    }
 
 
 @router.get("/user/{user_id}", response_model=List[Conversation])

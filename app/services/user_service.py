@@ -1,6 +1,12 @@
-# app/services/user_service.py
+"""
+User service module.
+
+Handles business logic for user registration, authentication, and retrieval.
+"""
 
 import logging
+from datetime import datetime
+from fastapi import HTTPException, status
 from app.models import UserCreate
 from app.repositories.user_repository import (
     get_user_by_username,
@@ -9,10 +15,7 @@ from app.repositories.user_repository import (
 )
 from app.utils.password import hash_password, verify_password
 from app.utils.auth import create_access_token
-from fastapi import HTTPException, status
-from datetime import datetime
 
-# Configure logging
 logger = logging.getLogger("user_service")
 logger.setLevel(logging.INFO)
 
@@ -20,19 +23,21 @@ logger.setLevel(logging.INFO)
 async def register_user(user: UserCreate) -> dict:
     """
     Register a new user:
-      - Ensure the username is unique.
+      - Check if the username already exists.
       - Hash the password.
-      - Create the user in the database.
+      - Save the new user to the database.
+
+    :param user: A UserCreate instance containing user signup data.
+    :return: The created user document.
+    :raises HTTPException: If the username is already taken or if registration fails.
     """
     try:
-        # Check if username exists
         existing_user = await get_user_by_username(user.username)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already exists.",
             )
-        # Prepare new user data
         new_user = {
             "username": user.username,
             "password": hash_password(user.password),
@@ -42,7 +47,6 @@ async def register_user(user: UserCreate) -> dict:
         logger.info(f"User '{user.username}' registered successfully.")
         return created_user
     except HTTPException:
-        # Reraise known HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Error registering user '{user.username}': {e}")
@@ -54,10 +58,15 @@ async def register_user(user: UserCreate) -> dict:
 
 async def authenticate_user(username: str, password: str) -> dict:
     """
-    Authenticate the user:
-      - Retrieve the user from the database.
+    Authenticate a user:
+      - Retrieve the user by username.
       - Verify the password.
-      - Generate and return a JWT token if credentials are valid.
+      - Generate a JWT token on success.
+
+    :param username: The username.
+    :param password: The user's password.
+    :return: A dictionary containing the access token and token type.
+    :raises HTTPException: If authentication fails.
     """
     try:
         stored_user = await get_user_by_username(username)
@@ -86,15 +95,17 @@ async def authenticate_user(username: str, password: str) -> dict:
         )
 
 
-async def get_users():
+async def get_users() -> list:
     """
-    Retrieve all users from the database.
+    Retrieve all users.
+
+    :return: A list of user documents.
+    :raises HTTPException: If user retrieval fails.
     """
     try:
         users = await get_all_users()
         return users
     except Exception as e:
-        print(e)
         logger.error(f"Error retrieving all users: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

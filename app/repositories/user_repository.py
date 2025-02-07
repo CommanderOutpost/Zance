@@ -1,21 +1,33 @@
-# app/repositories/user_repository.py
+"""
+User repository module.
 
+Provides functions for querying and updating the "users" collection in MongoDB.
+"""
+
+from typing import Optional, List, Dict
 from app.database import db
 from bson import ObjectId, errors
 from fastapi import HTTPException, status
 
 
-async def get_user_by_username(username: str):
+async def get_user_by_username(username: str) -> Optional[Dict]:
     """
-    Retrieve a user from the database by username.
+    Retrieve a user document by username.
+
+    :param username: The username to search for.
+    :return: The user document if found, otherwise None.
     """
     return await db.users.find_one({"username": username})
 
 
-async def get_user_by_id(user_id: str):
+async def get_user_by_id(user_id: str) -> Optional[Dict]:
     """
-    Retrieve a user from the database by user ID.
-    If the user_id is not a valid ObjectId, raises an HTTP 400 error.
+    Retrieve a user document by its ID.
+    Validates the ID format; raises a 400 error if invalid.
+
+    :param user_id: The user ID as a string.
+    :return: The user document if found, otherwise None.
+    :raises HTTPException: If the user_id is not a valid 24-character hex string.
     """
     try:
         oid = ObjectId(user_id)
@@ -31,21 +43,26 @@ async def get_user_by_id(user_id: str):
     return user
 
 
-async def create_user(user_data: dict) -> dict:
+async def create_user(user_data: Dict) -> Dict:
     """
-    Insert a new user into the database and return the created document.
+    Insert a new user document into the database.
+
+    :param user_data: A dictionary containing user data.
+    :return: The created user document with the _id converted to a string.
     """
     result = await db.users.insert_one(user_data)
     user_data["_id"] = str(result.inserted_id)
     return user_data
 
 
-async def get_all_users():
+async def get_all_users() -> List[Dict]:
     """
-    Retrieve all users from the database.
-    Convert the ObjectId of each user to a string.
+    Retrieve all user documents from the database,
+    converting each document's _id to a string.
+
+    :return: A list of user documents.
     """
-    users = await db.users.find().to_list(None)
+    users = await db.users.find().to_list(length=None)
     for user in users:
         user["_id"] = str(user["_id"])
     return users

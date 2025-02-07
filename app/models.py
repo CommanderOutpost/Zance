@@ -45,9 +45,7 @@ class Message(BaseModel):
 
     sender: str = Field(..., example="john_doe")
     content: str = Field(..., example="Hello, how are you?")
-    timestamp: Optional[datetime] = Field(
-        default_factory=lambda: datetime.now(datetime.timezone.utc)
-    )
+    timestamp: Optional[datetime] = Field(default_factory=lambda: datetime.utcnow())
 
     class Config:
         from_attributes = True

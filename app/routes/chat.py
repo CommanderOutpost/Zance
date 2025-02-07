@@ -9,7 +9,10 @@ import json
 
 # For JWT decoding and conversation authorization.
 from app.utils.auth import decode_access_token
-from app.services.conversation_service import get_conversation
+from app.services.conversation_service import (
+    get_conversation,
+    update_conversation_history_record,
+)
 
 # For Redis Pub/Sub.
 from app.services.redis_pubsub import publish_message, subscribe_to_channel
@@ -35,6 +38,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     """
     # Extract token from query parameters.
     token = websocket.query_params.get("token")
+    # print("Token received:", token)
     if not token:
         await websocket.close(code=1008)
         return
@@ -43,24 +47,32 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
+        # print("Decoded payload:", payload)
         if not user_id:
             await websocket.close(code=1008)
             return
     except Exception as e:
+        print("Error decoding token:", e)
         await websocket.close(code=1008)
         return
+
+    # print("hello")
 
     # Authorization: check if user is a participant in the conversation.
     try:
         conversation = await get_conversation(conversation_id)
+        print("Conversation data:", conversation)
         if not conversation:
+            print("Conversation not found.")
             await websocket.close(code=1008)
             return
-    except Exception:
+    except Exception as e:
+        print("Error fetching conversation:", e)
         await websocket.close(code=1008)
         return
 
     if user_id not in conversation.get("participants", []):
+        print("User not authorized for conversation.")
         await websocket.close(code=1008)
         return
 
@@ -109,8 +121,47 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             # Save the message in the database.
             saved_message = await send_message(conversation_id, message_obj)
 
+            # Ensure the message is also added to the conversation history
+            conversation = await get_conversation(conversation_id)
+            if conversation:
+                history = conversation.get("history", [])
+                history.append(
+                    {
+                        "role": "user",
+                        "sender": message_obj.sender,
+                        "content": message_obj.content,
+                    }
+                )
+                # Append user message
+                await update_conversation_history_record(
+                    conversation_id, history
+                )  # Update DB
+
             # Publish the saved message to the Redis channel for distributed broadcasting.
             await publish_message(conversation_id, saved_message)
+
+            # Trigger AI response after message is saved
+            if conversation.get("conversation_type") == "group":
+                if message_obj.sender:  # Ensures sender is a user
+                    from app.services.ai_group_service import automate_group_ai_response
+
+                    asyncio.create_task(automate_group_ai_response(conversation_id))
+
+            # For group chats, if the conversation type is "group" and the message is from a user,
+            # trigger an automated AI response.
+
+            conv = await get_conversation(conversation_id)
+            if conv.get("conversation_type") == "group":
+                if message_obj.sender:  # Ensure AI does not respond to itself
+                    from app.services.ai_group_service import automate_group_ai_response
+
+                    # Prevent duplicate AI responses
+                    if not any(
+                        msg.get("role") == "assistant"
+                        for msg in conversation.get("history", [])
+                    ):
+                        asyncio.create_task(automate_group_ai_response(conversation_id))
+
     except WebSocketDisconnect:
         # Remove the WebSocket from local connections on disconnect.
         if conversation_id in local_connections:

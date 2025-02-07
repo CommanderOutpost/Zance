@@ -62,7 +62,7 @@ class ConversationCreate(BaseModel):
     """
 
     participants: List[str] = Field(..., example=["user_id_1", "user_id_2"])
-    conversation_type: str = Field(default="dm", example="dm")  # e.g., "dm" or "group"
+    conversation_type: str = Field(default="dm", example="dm")  # Could also be "group"
 
 
 class Conversation(BaseModel):

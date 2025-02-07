@@ -1,89 +1,104 @@
 """
-Conversation Repository Module
+AI Repository Module
 
-This module handles direct interactions with the "conversations" collection in MongoDB.
-It provides functions to create, retrieve, list, and update conversation documents.
+Provides functions to interact with the "ais" collection in MongoDB.
 """
 
-from typing import List, Dict, Any
+from typing import Dict, Any, List, Optional
 from app.database import db
 from bson import ObjectId, errors
 from fastapi import HTTPException, status
 
 
-async def create_conversation(conversation_data: Dict[str, Any]) -> Dict[str, Any]:
+async def create_ai(ai_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Insert a new conversation into the database.
+    Insert a new AI agent into the database and return the created document.
 
-    :param conversation_data: Dictionary containing conversation data.
-    :return: The inserted conversation document with the '_id' converted to a string.
+    :param ai_data: A dictionary containing AI agent data.
+    :return: The inserted AI document with _id as a string.
     """
-    result = await db.conversations.insert_one(conversation_data)
-    conversation_data["_id"] = str(result.inserted_id)
-    return conversation_data
+    result = await db.ais.insert_one(ai_data)
+    ai_data["_id"] = str(result.inserted_id)
+    return ai_data
 
 
-async def get_conversation_by_id(conversation_id: str) -> Dict[str, Any]:
+async def get_ai_by_id(ai_id: str) -> Optional[Dict[str, Any]]:
     """
-    Retrieve a conversation document by its ID.
+    Retrieve an AI agent by its ID.
 
-    :param conversation_id: The conversation ID (24-character hex string).
-    :return: The conversation document if found; otherwise, None.
-    :raises HTTPException: If the conversation_id is invalid.
+    :param ai_id: The AI agent's ID as a 24-character hex string.
+    :return: The AI document if found; otherwise, None.
+    :raises HTTPException: If the AI id is invalid.
     """
     try:
-        oid = ObjectId(conversation_id)
+        oid = ObjectId(ai_id)
     except errors.InvalidId:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid conversation id: {conversation_id}. It must be a 24-character hex string.",
+            detail=f"Invalid AI id: {ai_id}. It must be a 24-character hex string.",
         )
-    conversation = await db.conversations.find_one({"_id": oid})
-    if conversation:
-        conversation["_id"] = str(conversation["_id"])
-    return conversation
+    ai = await db.ais.find_one({"_id": oid})
+    if ai:
+        ai["_id"] = str(ai["_id"])
+    return ai
 
 
-async def list_conversations_for_user(user_id: str) -> List[Dict[str, Any]]:
+async def list_all_ais() -> List[Dict[str, Any]]:
     """
-    List all conversations that include the given user ID in their participants.
+    List all AI agents in the database.
 
-    :param user_id: The user's ID as a string.
-    :return: A list of conversation documents.
+    :return: A list of AI documents with _id converted to strings.
     """
-    cursor = db.conversations.find({"participants": user_id}).sort("created_at", -1)
-    conversations: List[Dict[str, Any]] = []
-    async for doc in cursor:
-        doc["_id"] = str(doc["_id"])
-        conversations.append(doc)
-    return conversations
+    ais = await db.ais.find().to_list(length=None)
+    for ai in ais:
+        ai["_id"] = str(ai["_id"])
+    return ais
 
 
-async def update_conversation_history_record(
-    conversation_id: str, history: List[Dict[str, Any]]
-) -> Dict[str, Any]:
+async def update_ai(ai_id: str, ai_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Update the 'history' field of a conversation document.
+    Update an existing AI agent.
 
-    :param conversation_id: The conversation ID.
-    :param history: A list of dictionaries representing the conversation history.
-    :return: The updated conversation document.
-    :raises HTTPException: If the conversation_id is invalid or the conversation is not found.
+    :param ai_id: The ID of the AI agent.
+    :param ai_data: A dictionary containing the fields to update.
+    :return: The updated AI document.
+    :raises HTTPException: If the AI is not found or the ID is invalid.
     """
     try:
-        oid = ObjectId(conversation_id)
+        oid = ObjectId(ai_id)
     except errors.InvalidId:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid conversation id: {conversation_id}. It must be a 24-character hex string.",
+            detail=f"Invalid AI id: {ai_id}. It must be a 24-character hex string.",
         )
-    result = await db.conversations.update_one(
-        {"_id": oid}, {"$set": {"history": history}}
-    )
+    result = await db.ais.update_one({"_id": oid}, {"$set": ai_data})
     if result.modified_count:
-        updated_conversation = await get_conversation_by_id(conversation_id)
-        return updated_conversation
+        return await get_ai_by_id(ai_id)
     else:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found."
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI not found."
+        )
+
+
+async def delete_ai(ai_id: str) -> Dict[str, Any]:
+    """
+    Delete an AI agent from the database.
+
+    :param ai_id: The AI agent's ID.
+    :return: A dictionary with a deletion message.
+    :raises HTTPException: If the AI is not found or the ID is invalid.
+    """
+    try:
+        oid = ObjectId(ai_id)
+    except errors.InvalidId:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid AI id: {ai_id}. It must be a 24-character hex string.",
+        )
+    result = await db.ais.delete_one({"_id": oid})
+    if result.deleted_count:
+        return {"detail": "AI deleted"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI not found."
         )

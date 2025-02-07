@@ -6,7 +6,7 @@ from app.routes.ai import router as ai_router
 from app.routes.ai_chat import router as ai_chat_router
 from app.routes.conversation import router as conversation_router
 
-app = FastAPI(title="Remindria")
+app = FastAPI(title="Zance")
 
 app.include_router(user_router, prefix="/users", tags=["Users"])
 app.include_router(chat_router, prefix="/chat", tags=["Chat"])

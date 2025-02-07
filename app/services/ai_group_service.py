@@ -1,6 +1,16 @@
-# app/services/ai_group_service.py
+"""
+Module: app.services.ai_group_service
+
+This module implements the automated AI response logic for group chats.
+It retrieves participant names (from either the user or AI collections),
+builds a system prompt that informs the AI of its identity and the group context,
+and then generates an AI response to the latest user message.
+"""
 
 import asyncio
+import logging
+from typing import List, Optional, Dict, Any
+
 from app.services.conversation_service import (
     get_conversation,
     update_conversation_history_record,
@@ -9,81 +19,107 @@ from app.services.ai_service import get_ai_response
 from app.repositories.user_repository import get_user_by_id
 from app.repositories.ai_repository import get_ai_by_id as get_ai_by_id_repo
 
+# Configure module-level logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Adjust level as needed
 
-async def get_participant_names(participants: list) -> list:
+
+async def get_participant_names(participants: List[str]) -> List[str]:
     """
     Given a list of participant IDs, return their display names.
-    Try to fetch as a user first; if not found, try as an AI.
+
+    Tries to retrieve each participant as a user first; if not found, then as an AI.
+    If a participant cannot be found in either collection, its ID is returned.
+
+    :param participants: A list of participant IDs (strings).
+    :return: A list of display names corresponding to the participant IDs.
     """
-    names = []
+    names: List[str] = []
     for pid in participants:
-        name = None
+        name: Optional[str] = None
         # Try as user
         try:
             user = await get_user_by_id(pid)
             if user:
                 name = user.get("username")
-                print(name)
-        except Exception:
-            pass
-        # Try as AI if not found
+                logger.debug(f"Found user for {pid}: {name}")
+        except Exception as e:
+            logger.debug(f"Error fetching user for {pid}: {e}")
+        # Try as AI if not found as user
         if not name:
             try:
                 ai = await get_ai_by_id_repo(pid)
                 if ai:
                     name = ai.get("name")
-            except Exception:
-                pass
+                    logger.debug(f"Found AI for {pid}: {name}")
+            except Exception as e:
+                logger.debug(f"Error fetching AI for {pid}: {e}")
         names.append(name if name else pid)
-        print(names)
+        logger.debug(f"Current participant names list: {names}")
     return names
 
 
-async def automate_group_ai_response(conversation_id: str):
+async def automate_group_ai_response(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
-    For a group chat conversation, automatically generate an AI response.
-    The AI will be aware it is in a group chat, know the names of the participants,
-    and also know which user sent the latest message.
+    Automatically generate an AI response for a group chat conversation.
+
+    The function performs the following steps:
+      1. Loads the conversation and verifies that it is a group chat.
+      2. Retrieves participant names and identifies the AI agent in the group.
+      3. Constructs a system prompt incorporating the AI's identity and group context.
+      4. Extracts the latest user message (and sender) from the conversation history.
+      5. Constructs an input prompt for the AI (including the sender's name).
+      6. Generates an AI response using the OpenAI client.
+      7. Appends the AI response to the conversation history and updates the database record.
+
+    :param conversation_id: The conversation ID as a string.
+    :return: The updated conversation document if successful, otherwise None.
+    :raises Exception: If the AI response generation fails.
     """
-    print("Automating group AI response...")
-    # Load conversation
+    logger.info(f"Automating group AI response for conversation: {conversation_id}")
     conversation = await get_conversation(conversation_id)
     if not conversation or conversation.get("conversation_type") != "group":
-        return None  # Only process group conversations
+        logger.debug(
+            "Conversation is not a group chat or not found; skipping AI response."
+        )
+        return None
 
-    history = conversation.get("history", [])
-    participants = conversation.get("participants", [])
+    history: List[Dict[str, Any]] = conversation.get("history", [])
+    participants: List[str] = conversation.get("participants", [])
 
-    # Find the AI in the group chat (assume one AI per group)
-    ai_id = None
+    # Identify the AI in the group chat (assumes at most one AI)
+    ai_id: Optional[str] = None
     for pid in participants:
-        ai = await get_ai_by_id_repo(pid)
-        if ai:
-            ai_id = pid
-            break
+        try:
+            ai = await get_ai_by_id_repo(pid)
+            if ai:
+                ai_id = pid
+                logger.debug(f"AI found in conversation: {ai.get('name', 'AI')}")
+                break
+        except Exception as e:
+            logger.debug(f"Error checking AI for participant {pid}: {e}")
 
-    # Retrieve participant names
+    # Retrieve display names for all participants
     names = await get_participant_names(participants)
-    print("names", names)
+    logger.debug(f"Participant names: {names}")
 
-    # Inject AI personality in group chat
+    # Build the group system prompt, including AI identity if available
     if ai_id:
         ai_details = await get_ai_by_id_repo(ai_id)
         ai_name = ai_details.get("name", "AI")
         ai_personality = ai_details.get("personality", "friendly")
         ai_description = ai_details.get("details", "An AI assistant.")
-
         group_prompt = (
             f"You are {ai_name}, an AI participant in this group chat. "
             f"Your personality is {ai_personality}. {ai_description} "
-            f"Here are the participants: {', '.join(names)}. "
-            f"Please respond appropriately in character."
+            f"Participants: {', '.join(names)}. "
+            f"Respond appropriately in character."
         )
     else:
         group_prompt = f"This is a group chat with participants: {', '.join(names)}. Please respond appropriately."
-        print(group_prompt)
+        logger.debug(f"Group prompt (no AI identity): {group_prompt}")
 
-    # Ensure the system prompt is added or updated
+    # Ensure the system prompt is in the conversation history (update or insert)
     if not any(msg.get("role") == "system" for msg in history):
         history.insert(0, {"role": "system", "content": group_prompt})
     else:
@@ -92,41 +128,37 @@ async def automate_group_ai_response(conversation_id: str):
                 history[idx] = {"role": "system", "content": group_prompt}
                 break
 
-    # Ensure the AI responds to the latest user message
-    last_message = None
-    last_user_sender = None
+    # Extract the latest user message and sender from the conversation history
+    last_message: Optional[str] = None
+    last_user_sender: Optional[str] = None
     for msg in reversed(history):
         if msg.get("role") == "user":
             last_message = msg.get("content", "").strip()
-            last_user_sender = msg.get(
-                "sender"
-            )  # Expecting the sender field to be present
+            last_user_sender = msg.get("sender")
             break
 
-    if not last_message or last_message == "":
-        print("No valid user message found. Skipping AI response.")
-        return  # No user message to respond to
+    if not last_message:
+        logger.debug("No valid user message found. Skipping AI response.")
+        return None  # Nothing to respond to
 
-    # Construct input prompt including sender's name if available
+    # Build the input prompt, including sender's name if available
     if last_user_sender:
         ai_input = f"As {ai_name}, respond to this group chat message from {last_user_sender}: {last_message}"
     else:
         ai_input = f"As {ai_name}, respond to this group chat message: {last_message}"
+    logger.debug(f"AI input prompt: {ai_input}")
 
-    # Debug print
-    print(f"Latest user message for AI: {last_message}")
-    print(f"AI input prompt: {ai_input}")
-
-    # Generate AI response
+    # Generate the AI response
     try:
         ai_response = await get_ai_response(ai_input, history, model="gpt-4o-mini")
-        print("Generated AI response:", ai_response)
+        logger.info(f"Generated AI response: {ai_response}")
     except Exception as e:
         raise Exception(f"Failed to generate group AI response: {e}")
 
-    # Append the AI's response to the conversation history
+    # Append the AI response to the conversation history
     history.append({"role": "assistant", "content": ai_response})
     updated_conversation = await update_conversation_history_record(
         conversation_id, history
     )
+    logger.info("Conversation history updated with AI response.")
     return updated_conversation

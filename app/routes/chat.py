@@ -143,7 +143,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             # Trigger AI response after message is saved
             if conversation.get("conversation_type") == "group":
                 if message_obj.sender:  # Ensures sender is a user
-                    from app.services.ai_group_service import automate_group_ai_response
+                    from app.services.ai.ai_group_service import automate_group_ai_response
 
                     asyncio.create_task(automate_group_ai_response(conversation_id))
 
@@ -153,7 +153,7 @@ async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
             conv = await get_conversation(conversation_id)
             if conv.get("conversation_type") == "group":
                 if message_obj.sender:  # Ensure AI does not respond to itself
-                    from app.services.ai_group_service import automate_group_ai_response
+                    from app.services.ai.ai_group_service import automate_group_ai_response
 
                     # Prevent duplicate AI responses
                     if not any(

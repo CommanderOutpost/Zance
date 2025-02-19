@@ -6,16 +6,25 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from app.repositories.ai_repository import get_ai_by_id
-from app.services.ai_service import get_ai_response
+from app.services.ai.ai_service import get_ai_response, master_ai
+from app.services.ai.ai_chunking_service import chunk_messages
 from app.services.conversation_service import (
     create_new_conversation,
     get_conversation,
     update_conversation_history_record,
 )
+from app.services.user_service import get_user
 from app.utils.auth import decode_access_token
+import logging
+
+# import our Celery task
+from app.tasks import deliver_chunks_task
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/login")
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class AIChatRequest(BaseModel):
@@ -34,34 +43,21 @@ class AIChatResponse(BaseModel):
     """
 
     chat_id: str
-    response: str
     conversation_history: List[dict]
 
 
 @router.post("/{ai_id}", response_model=AIChatResponse, status_code=status.HTTP_200_OK)
 async def chat_with_ai(
-    ai_id: str,  # The ID of the AI agent to chat with
+    ai_id: str,
     request: AIChatRequest,
     token: str = Depends(oauth2_scheme),
 ):
     """
     Chat with a specific AI agent.
 
-    If a chat_id is provided, the conversation history is loaded from the database.
-    If not, a new conversation is created between the user and the AI.
-
-    Steps:
-      1. Verify the JWT token.
-      2. Retrieve the AI agent details.
-      3. Load the existing conversation if chat_id is provided, otherwise create a new conversation.
-         For AI conversations, skip the participant check since the AI is stored in a separate collection.
-      4. Ensure the conversation history contains the system prompt (constructed from the AI's details).
-      5. Append the user's new message to the conversation history.
-      6. Call the AI service to generate a response.
-      7. Append the assistant's response to the conversation history and update the conversation record.
-      8. Return the chat_id, AI's response, and the updated conversation history.
+    Now using Celery for scheduling chunked responses (ready for production scale).
     """
-    # Verify JWT token
+    # 1. Verify JWT
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
@@ -70,83 +66,102 @@ async def chat_with_ai(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: no user id found.",
             )
+
+        user_data = await get_user({"id": user_id})
+        print(user_data)
     except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token."
         )
 
-    # Retrieve AI agent details
+    # 2. Retrieve AI details
     ai_details = await get_ai_by_id(ai_id)
     if not ai_details:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="AI not found."
         )
 
-    # Construct a system prompt from the AI's details.
-    system_message = (
-        f"You are {ai_details.get('name', 'an AI')} with personality "
-        f"{ai_details.get('personality', 'friendly')}. {ai_details.get('details', '')}"
-    )
-
-    # Determine conversation history and chat_id
+    # 3. Prepare or retrieve conversation
     if request.chat_id:
-        # Load existing conversation from the database
         conversation = await get_conversation(request.chat_id)
         if not conversation:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found."
             )
-        # Extract chat_id from either "id" or "_id"
         chat_id = conversation.get("id") or conversation.get("_id")
         conversation_history = conversation.get("history", [])
+
+        # If there's an ongoing chunk delivery, mark it interrupted
+        conversation["interrupted"] = True
+        await update_conversation_history_record(
+            chat_id, conversation_history, interrupted=True
+        )
     else:
-        # Create a new conversation record
+        # Create new conversation doc
         conversation_data = {
             "participants": [user_id, ai_details.get("id") or ai_details.get("_id")],
             "conversation_type": "ai",
             "created_at": datetime.utcnow(),
-            "history": [],  # Start with an empty history
+            "history": [],
         }
-        # Pass skip_participant_check=True because the AI is not in the users collection.
         conversation = await create_new_conversation(
             conversation_data, skip_participant_check=True
         )
-        # Extract chat_id from either "id" or "_id"
         chat_id = conversation.get("id") or conversation.get("_id")
         conversation_history = []
 
-    # Ensure the system message is present in the conversation history
+    # 4. Ensure system message is present
+    logger.info("Ensuring system message is present")
+    system_message = (
+        f"You are {ai_details.get('name', 'an AI')} with personality "
+        f"{ai_details.get('personality', 'friendly')}. {ai_details.get('details', '')}"
+    )
     if not any(msg.get("role") == "system" for msg in conversation_history):
         conversation_history.insert(0, {"role": "system", "content": system_message})
 
-    # Append the user's new message
+    # 5. Append user's message
     conversation_history.append({"role": "user", "content": request.message})
 
-    # Generate AI response using the conversation history.
+    logger.info("Getting master AI's decision")
+    # 6. Get the master AI's decision
     try:
-        ai_response = await get_ai_response(
-            request.message, conversation_history, model="gpt-4o-mini"
+        master_ai_response = await master_ai(
+            request.message, user_data, ai_details, conversation_history
         )
+        print(master_ai_response)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)
         )
 
-    # Append the AI's response to the conversation history if it's not already added.
-    if not any(
-        msg.get("role") == "assistant" and msg.get("content") == ai_response
-        for msg in conversation_history
-    ):
-        conversation_history.append({"role": "assistant", "content": ai_response})
+    # 7. Determine scheduling plan using the "scheduling AI"
+    try:
+        chunks = await chunk_messages(
+            conversation_history,
+            user_data,
+            ai_details,
+            request.message,
+            master_ai_response,
+        )
+        print("Scheduling plan:", chunks)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to chunk response: {e}",
+        )
 
-    # Update the conversation record in the database with the new history.
+    # 8. Update the conversation record so it's not interrupted
     updated_conversation = await update_conversation_history_record(
-        chat_id, conversation_history
+        chat_id, conversation_history, interrupted=False
     )
 
-    # Return the chat_id, AI's response, and the updated conversation history.
+    # 9. Dispatch the Celery task with the scheduling plan
+    # We pass the conversation ID and the scheduling plan so the worker can fetch
+    # conversation data from DB (or we could pass them directly)
+    deliver_chunks_task.delay(chat_id, chunks)
+
+    # 10. Return an immediate response so the user sees something now
     return AIChatResponse(
         chat_id=chat_id,
-        response=ai_response,
         conversation_history=updated_conversation.get("history", conversation_history),
     )

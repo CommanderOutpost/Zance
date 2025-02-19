@@ -1,0 +1,11 @@
+celery[redis]
+fastapi
+uvicorn[standard]
+motor
+pymongo
+pydantic
+pydantic_settings
+bcrypt
+PyJWT
+openai
+vine

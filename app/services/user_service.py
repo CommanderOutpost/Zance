@@ -13,9 +13,12 @@ from app.repositories.user_repository import (
     get_user_by_phone_number,
     create_user,
     get_all_users,
+    get_user_by_id,
+    get_user_by_username,
 )
 from app.utils.password import hash_password, verify_password
 from app.utils.auth import create_access_token
+from typing import Dict
 
 logger = logging.getLogger("user_service")
 logger.setLevel(logging.INFO)
@@ -118,4 +121,40 @@ async def get_users() -> list:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error retrieving users.",
+        )
+
+
+async def get_user(info: Dict):
+    """
+    Retrieve a user by phone number or ID. If both are provided, prioritize the first one in the dict.
+
+    :param info: A dictionary containing either 'phone_number' or 'id'.
+    :return: The user document.
+    :raises HTTPException: If user retrieval fails or user is not found.
+    """
+    try:
+        if "phone_number" in info:
+            user = await get_user_by_phone_number(info["phone_number"])
+        elif "id" in info:
+            user = await get_user_by_id(info["id"])
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Either phone_number or id must be provided.",
+            )
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving user with info {info}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error retrieving user.",
         )

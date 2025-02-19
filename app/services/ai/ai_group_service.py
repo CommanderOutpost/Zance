@@ -7,7 +7,6 @@ builds a system prompt that informs the AI of its identity and the group context
 and then generates an AI response to the latest user message.
 """
 
-import asyncio
 import logging
 from typing import List, Optional, Dict, Any
 
@@ -15,13 +14,23 @@ from app.services.conversation_service import (
     get_conversation,
     update_conversation_history_record,
 )
-from app.services.ai_service import get_ai_response
+from app.services.ai.ai_service import get_ai_response
 from app.repositories.user_repository import get_user_by_id
 from app.repositories.ai_repository import get_ai_by_id as get_ai_by_id_repo
+from app.config import settings
+import sys
 
 # Configure module-level logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Adjust level as needed
+logger.setLevel(logging.DEBUG)
+
+# Add handler if missing
+if not logger.hasHandlers():
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 
 async def get_participant_names(participants: List[str]) -> List[str]:
@@ -150,7 +159,9 @@ async def automate_group_ai_response(conversation_id: str) -> Optional[Dict[str,
 
     # Generate the AI response
     try:
-        ai_response = await get_ai_response(ai_input, history, model="gpt-4o-mini")
+        ai_response = await get_ai_response(
+            ai_input, history, model=settings.openai_model
+        )
         logger.info(f"Generated AI response: {ai_response}")
     except Exception as e:
         raise Exception(f"Failed to generate group AI response: {e}")

@@ -6,7 +6,8 @@ from pydantic import Field
 
 class Settings(BaseSettings):
     # MongoDB URI: defaults to local if not provided.
-    mongo_uri: str = Field("mongodb://localhost:27017/remindria", env="MONGO_URI")
+    mongo_uri: str = Field("mongodb://localhost:27017", env="MONGO_URI")
+    mongo_db_name: str = Field("remindria", env="MONGO_DB_NAME")
     # Redis URL: defaults to local if not provided.
     redis_url: str = Field("redis://localhost:6379", env="REDIS_URL")
     # OpenAI API Key: must be provided.

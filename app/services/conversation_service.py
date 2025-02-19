@@ -12,6 +12,7 @@ from app.repositories.conversation_repository import (
     create_conversation,
     get_conversation_by_id,
     list_conversations_for_user,
+    update_conversation_history_record as update_conversation_history_record_repo,
 )
 from app.repositories.user_repository import get_user_by_id
 from app.repositories.ai_repository import get_ai_by_id
@@ -36,7 +37,7 @@ async def create_new_conversation(
     :raises HTTPException: If a participant ID is invalid or does not exist.
     """
     # Convert the Pydantic model to a dictionary.
-    conversation_data: Dict[str, Any] = conversation.model_dump()
+    conversation_data: Dict[str, Any] = conversation
 
     if not skip_participant_check:
         for participant_id in conversation_data.get("participants", []):
@@ -82,17 +83,13 @@ async def list_user_conversations(user_id: str) -> List[Dict[str, Any]]:
 
 
 async def update_conversation_history_record(
-    conversation_id: str, history: List[Dict[str, Any]]
+    conversation_id: str, history: List[Dict[str, Any]], interrupted: bool = False
 ) -> Dict[str, Any]:
     """
-    Update a conversation's history field with the provided message history.
-
-    :param conversation_id: The conversation ID.
-    :param history: A list of message dictionaries.
-    :return: The updated conversation document.
+    Update a conversation's history field (and optionally its interrupted status).
     """
-    from app.repositories.conversation_repository import (
-        update_conversation_history_record,
-    )
 
-    return await update_conversation_history_record(conversation_id, history)
+    # Call the repository function with both history and interrupted
+    return await update_conversation_history_record_repo(
+        conversation_id, history, interrupted
+    )

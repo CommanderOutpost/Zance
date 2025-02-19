@@ -11,6 +11,7 @@ from openai import OpenAI
 from app.config import settings
 from app.services.redis_service import get_cached_value, set_cached_value
 from fastapi import HTTPException, status
+from app.services.prompts.master_system_prompt import get_master_system_prompt
 
 # Initialize the OpenAI client with the API key from settings.
 openai_client = OpenAI(api_key=settings.openai_api_key)
@@ -47,15 +48,14 @@ async def get_ai_response(
     if cached_response:
         return cached_response
 
-    # Call the OpenAI API synchronously in a thread.
-    def sync_call():
+    def sync_call(conversation_history):
         return openai_client.chat.completions.create(
-            model=model,
+            model=openai_model,
             messages=conversation_history,
         )
 
     try:
-        response = await asyncio.to_thread(sync_call)
+        response = await asyncio.to_thread(sync_call, conversation_history)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -68,3 +68,57 @@ async def get_ai_response(
     # Cache the response.
     await set_cached_value(cache_key, ai_response, expire=3600)
     return ai_response
+
+
+async def master_ai(
+    prompt: str,
+    user_data: Dict[str, Any],
+    ai_data,
+    conversation_history: List[Dict[str, Any]],
+) -> str:
+    """
+    Generate a description of what the AI will do in the action step
+
+    :param prompt: The user's input message.
+    :param user_data: The user's data.
+    :param ai_data: The AI's data.
+
+    :return: The AI's response as a string.
+    """
+
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("The 'prompt' parameter must be a non-empty string.")
+    if not isinstance(conversation_history, list) or not all(
+        isinstance(msg, dict) and "role" in msg and "content" in msg
+        for msg in conversation_history
+    ):
+        raise ValueError(
+            "The 'conversation_history' must be a list of dictionaries with 'role' and 'content' keys."
+        )
+
+    master_system_prompt = get_master_system_prompt(
+        user_data, ai_data, conversation_history
+    )
+
+    def sync_call():
+        return openai_client.chat.completions.create(
+            model=settings.openai_model,
+            messages=[
+                {"role": "system", "content": master_system_prompt},
+                {
+                    "role": "user",
+                    "content": f"User latest message:{prompt}\nYour thoughts:\n",
+                },
+            ],
+            temperature=0.7,
+        )
+
+    try:
+        response = await asyncio.to_thread(sync_call)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate AI response: {e}",
+        )
+
+    return response

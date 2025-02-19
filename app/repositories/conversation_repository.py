@@ -58,26 +58,20 @@ async def list_conversations_for_user(user_id: str) -> List[Dict[str, Any]]:
 
 
 async def update_conversation_history_record(
-    conversation_id: str, history: List[Dict[str, Any]]
+    conversation_id: str, history: List[Dict[str, Any]], interrupted: bool = False
 ) -> Dict[str, Any]:
-    """
-    Update the history field of a conversation document.
-
-    :param conversation_id: The conversation ID.
-    :param history: A list of message dictionaries to set as the conversation history.
-    :return: The updated conversation document.
-    :raises HTTPException: If the conversation ID is invalid or the conversation is not found.
-    """
     try:
         oid = ObjectId(conversation_id)
     except errors.InvalidId:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid conversation id: {conversation_id}. It must be a 24-character hex string.",
+            detail=f"Invalid conversation id: {conversation_id}. Must be 24-char hex.",
         )
-    result = await db.conversations.update_one(
-        {"_id": oid}, {"$set": {"history": history}}
-    )
+
+    # Prepare the fields you want to update.
+    fields_to_update = {"history": history, "interrupted": interrupted}
+
+    result = await db.conversations.update_one({"_id": oid}, {"$set": fields_to_update})
     if result.modified_count:
         updated_conversation = await get_conversation_by_id(conversation_id)
         return updated_conversation
